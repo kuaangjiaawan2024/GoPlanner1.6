@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>地图画面</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.7.1/dist/leaflet.css" />
+    <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet" />
+    <style>
+        #map { height: 100vh; }
+        #search-container {
+            position: absolute;
+            top: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            z-index: 1000;
+            display: flex;
+            gap: 10px;
+        }
+        #address-input {
+            padding: 10px;
+            width: 300px;
+            border-radius: 5px;
+            border: 1px solid #ccc;
+        }
+        #search-btn {
+            padding: 10px 15px;
+            background: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+        }
+        #locate-btn {
+            width: 44px;
+            height: 44px;
+            background: white;
+            border: none;
+            border-radius: 50%;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+            cursor: pointer;
+            font-size: 24px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.3s ease;
+            color: #2196F3;
+            font-family: 'Material Icons';
+        }
+        #locate-btn:hover {
+            background: #f0f0f0;
+            box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+        }
+    </style>
+</head>
+<body>
+    <div id="map"></div>
+        <div id="search-container">
+            <input type="text" id="address-input" placeholder="输入客户地址">
+            <button id="search-btn">搜索</button>
+        </div>
+    <script src="https://unpkg.com/leaflet@1.7.1/dist/leaflet.js"></script>
+<script src="https://unpkg.com/leaflet-routing-machine@3.2.12/dist/leaflet-routing-machine.js"></script>
+<link rel="stylesheet" href="https://unpkg.com/leaflet-routing-machine@3.2.12/dist/leaflet-routing-machine.css" />
+    <script>
+        const map = L.map('map').setView([51.505, -0.09], 13);
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+        }).addTo(map);
+        
+        // 添加定位按钮和功能
+        const locateBtn = document.createElement('button');
+        locateBtn.textContent = 'my_location';
+        locateBtn.id = 'locate-btn';
+        locateBtn.style.position = 'absolute';
+        locateBtn.style.bottom = '20px';
+        locateBtn.style.right = '20px';
+        locateBtn.style.zIndex = '1000';
+        document.body.appendChild(locateBtn);
+        
+        let userMarker = null;
+        let watchId = null;
+
+        function updateUserLocation(position) {
+            const { latitude, longitude } = position.coords;
+            window.userPosition = {lat: latitude, lng: longitude};
+            
+            if (!userMarker) {
+                userMarker = L.marker([latitude, longitude], {
+                    icon: L.divIcon({
+                        className: 'user-marker',
+                        html: '<div style="background-color: #2196F3; width: 15px; height: 15px; border-radius: 50%; border: 3px solid white; box-shadow: 0 0 10px rgba(0,0,0,0.5);"></div>'
+                    })
+                }).addTo(map);
+                map.setView([latitude, longitude], 15);
+            } else {
+                userMarker.setLatLng([latitude, longitude]);
+            }
+            userMarker.bindPopup('您的位置').openPopup();
+        }
+
+        locateBtn.addEventListener('click', () => {
+            if (navigator.geolocation) {
+                if (watchId === null) {
+                    // 开始追踪位置
+                    locateBtn.style.backgroundColor = '#2196F3';
+                    locateBtn.style.color = 'white';
+                    watchId = navigator.geolocation.watchPosition(
+                        updateUserLocation,
+                        (error) => {
+                            alert('无法获取位置信息: ' + error.message);
+                        },
+                        { enableHighAccuracy: true }
+                    );
+                } else {
+                    // 停止追踪位置
+                    navigator.geolocation.clearWatch(watchId);
+                    watchId = null;
+                    locateBtn.style.backgroundColor = 'white';
+                    locateBtn.style.color = '#2196F3';
+                    if (userMarker) {
+                        map.removeLayer(userMarker);
+                        userMarker = null;
+                    }
+                }
+            } else {
+                alert('您的浏览器不支持定位功能');
+            }
+        });
+        
+        // 添加地址搜索功能
+        const searchBtn = document.getElementById('search-btn');
+        const addressInput = document.getElementById('address-input');
+        
+        searchBtn.addEventListener('click', () => {
+            const address = addressInput.value.trim();
+            if (!address) {
+                alert('请输入有效地址');
+                return;
+            }
+            
+            // 使用Nominatim地理编码服务
+            fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(address)}`)
+                .then(response => response.json())
+                .then(data => {
+                    if (data.length > 0) {
+                        const firstResult = data[0];
+                        const lat = parseFloat(firstResult.lat);
+                        const lon = parseFloat(firstResult.lon);
+                        
+                        map.setView([lat, lon], 15);
+                        L.marker([lat, lon]).addTo(map)
+                            .bindPopup(address).openPopup();
+                            
+                        // 如果已有用户位置，则绘制路线
+                        if (window.userPosition) {
+                            L.Routing.control({
+                                waypoints: [
+                                    L.latLng(window.userPosition.lat, window.userPosition.lng),
+                                    L.latLng(lat, lon)
+                                ],
+                                routeWhileDragging: true,
+                                show: false,
+                                addWaypoints: false,
+                                routeLine: function(route) {
+                                    return L.polyline(route.coordinates);
+                                }
+                            }).addTo(map);
+                        }
+                    } else {
+                        alert('未找到该地址');
+                    }
+                })
+                .catch(error => {
+                    alert('搜索失败: ' + error.message);
+                });
+        });
+    </script>
+</body>
+</html>
